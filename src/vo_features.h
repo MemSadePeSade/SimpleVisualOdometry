@@ -1,28 +1,12 @@
-/*
-
-The MIT License
-
-Copyright (c) 2015 Avi Singh
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-
-*/
+#include <iostream>
+#include <ctype.h>
+#include <algorithm> 
+#include <iterator> 
+#include <vector>
+#include <ctime>
+#include <sstream>
+#include <fstream>
+#include <string>
 
 #include "opencv2/video/tracking.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
@@ -31,17 +15,6 @@ THE SOFTWARE.
 #include "opencv2/xfeatures2d.hpp"
 #include "opencv2/calib3d/calib3d.hpp"
 #include "opencv2/opencv.hpp"
-
-
-#include <iostream>
-#include <ctype.h>
-#include <algorithm> // for copy
-#include <iterator> // for ostream_iterator
-#include <vector>
-#include <ctime>
-#include <sstream>
-#include <fstream>
-#include <string>
 
 using namespace cv;
 using namespace std;
@@ -101,36 +74,4 @@ void featureDetection(const Ptr<FeatureDetector>& detector,
 		detector->detect(img, keypoints);
 	}
 	KeyPoint::convert(keypoints, points, vector<int>());
-}
-
-double getAbsoluteScale(int frame_id, int sequence_id, double z_cal) {
-	string line;
-	int i = 0;
-	ifstream myfile("/home/avisingh/Datasets/KITTI_VO/00.txt");
-	double x = 0, y = 0, z = 0;
-	double x_prev, y_prev, z_prev;
-	if (myfile.is_open())
-	{
-		while ((getline(myfile, line)) && (i <= frame_id))
-		{
-			z_prev = z;
-			x_prev = x;
-			y_prev = y;
-			std::istringstream in(line);
-			//cout << line << '\n';
-			for (int j = 0; j<12; j++) {
-				in >> z;
-				if (j == 7) y = z;
-				if (j == 3)  x = z;
-			}
-
-			i++;
-		}
-		myfile.close();
-	}
-	else {
-		cout << "Unable to open file";
-		return 0;
-	}
-	return sqrt((x - x_prev)*(x - x_prev) + (y - y_prev)*(y - y_prev) + (z - z_prev)*(z - z_prev));
 }
