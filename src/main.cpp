@@ -67,7 +67,6 @@ int LoadCameraParam(const std::string& filename, CameraParam& camera_param){
 
 using namespace boost::filesystem;
 int main(int argc, char** argv) {
-	//////
 	char text[100];
 	int fontFace = FONT_HERSHEY_PLAIN;
 	double fontScale = 1;
@@ -79,7 +78,8 @@ int main(int argc, char** argv) {
 	
 	//LoadCameraParam(filename,camera_param);
 	
-	cv::namedWindow("Road facing camera", WINDOW_AUTOSIZE);// Create a window for display.
+	//cv::namedWindow("Road facing camera1", WINDOW_AUTOSIZE);// Create a window for display.
+	cv::namedWindow("Road facing camera2", WINDOW_AUTOSIZE);// Create a window for display.
 	cv::namedWindow("Trajectory", WINDOW_AUTOSIZE);// Create a window for display.
 
 	//path p("C:\\data\\img");  
@@ -88,48 +88,69 @@ int main(int argc, char** argv) {
 	directory_iterator prev_itr(p);
 	directory_iterator curr_itr(p); ++curr_itr;
 
-	
 	// cycle through the directory
+	Ptr<FeatureDetector> featureDetector;
+	if (!createDetectorDescriptorMatcher("ORB", featureDetector))
+	   return -1;
+
 	cv::Mat traj = Mat::zeros(600, 600, CV_8UC3);
 	cv::Matx31d t_f(0,0,0);
 	cv::Matx33d R_f(1, 0, 0, 0, 1, 0, 0, 0, 1);
+	cv::Mat E_prev;
 	for (prev_itr,curr_itr; curr_itr != end_itr; ++curr_itr,++prev_itr){
-		Mat img1 = imread(prev_itr->path().string());
-		Mat img2 = imread(curr_itr->path().string());
-		cvtColor(img1, img1, COLOR_BGR2GRAY);
-		cvtColor(img2, img2, COLOR_BGR2GRAY);
+		Mat img_prev = imread(prev_itr->path().string());
+		Mat img_curr = imread(curr_itr->path().string());
+		cvtColor(img_prev, img_prev, COLOR_BGR2GRAY);
+		cvtColor(img_curr, img_curr, COLOR_BGR2GRAY);
 		
 		// feature detection, tracking
 		vector<Point2f> points1, points2;//vectors to store the coordinates of the feature points
-		featureDetection(img1, points1);//detect features in img1
+		featureDetection(featureDetector, img_prev, points1, "NeFast");//detect features in img1
 		vector<uchar> status;
-		featureTracking(img1, img2, points1, points2, status);
+		featureTracking(img_prev, img_curr, points1, points2, status);
 		
 		cv::Mat img2_keypoints;
-		std::vector<cv::KeyPoint> draw_points;
-		draw_points.resize(points2.size());
-		std::for_each(draw_points.begin(), draw_points.end(), 
+		std::vector<cv::KeyPoint> draw_points2;
+		draw_points2.resize(points2.size());
+		std::for_each(draw_points2.begin(), draw_points2.end(), 
 			[&points2, counter = 0](auto& it)  mutable
 		    {
 			     it.pt = points2[counter];
 				 counter++;
 		    });
-		
-		drawKeypoints(img2, draw_points, img2_keypoints, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
+		drawKeypoints(img_curr, draw_points2, img2_keypoints, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
+		/*
+		cv::Mat img1_keypoints;
+		std::vector<cv::KeyPoint> draw_points1;
+		draw_points1.resize(points1.size());
+		std::for_each(draw_points1.begin(), draw_points1.end(),
+			[&points1, counter = 0](auto& it)  mutable
+		{
+			it.pt = points1[counter];
+			counter++;
+		});
+		drawKeypoints(img1, draw_points1, img1_keypoints, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
+		*/
 		
 		cv::Matx31d t;
 		cv::Matx33d R;
 		Mat E, mask;
 		E = cv::findEssentialMat(points1, points2, camera_param.focal_length, 
 			                     camera_param.pp, RANSAC, 0.999, 1.0, mask);
-		
+		// undistortion
+		if(!E_prev.empty())
+		  cv::undistortPoints(points1, points1, E_prev, camera_param.dist_coeff);
+		else
+			E_prev = cv::Mat::eye(3, 3, CV_64F);
+		cv::undistortPoints(points2, points2, E, camera_param.dist_coeff);
+		E_prev *= E;
+		// estimate R,T
 		cv::recoverPose(E, points1, points2, R, t, camera_param.focal_length,
 			            camera_param.pp, mask);
 		
-		double scale = 1.0;//getAbsoluteScale(numFrame, 0, t.at<double>(2));
-		t_f = t_f + scale * (R_f * t);
-		R_f = R * R_f;
-		
+		double scale = 1.0;
+		t_f = scale*t + scale * (R * t_f);
+
 		int x = int(t_f(0)) + 300;
 		int y = int(t_f(2)) + 100;
 		circle(traj, Point(x, y), 1, CV_RGB(255, 0, 0), 2);
@@ -141,7 +162,8 @@ int main(int argc, char** argv) {
 		// assign current file name to current_file and echo it out to the console.
 		string current_file = curr_itr->path().string();
 		cout << current_file << endl;
-		cv::imshow("Road facing camera", img2_keypoints);
+		//cv::imshow("Road facing camera1", img1_keypoints);
+		cv::imshow("Road facing camera2", img2_keypoints);
 		cv::imshow("Trajectory", traj);
 	
 		if (cv::waitKey(0)  == 27)
