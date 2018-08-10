@@ -32,6 +32,12 @@
       "installRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\install\\${name}",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "-v",
+      "variables": [
+        {
+          "name": "CMAKE_TOOLCHAIN_FILE",
+          "value": "C:\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake"
+        }
+      ],
       "ctestCommandArgs": ""
     },
     {

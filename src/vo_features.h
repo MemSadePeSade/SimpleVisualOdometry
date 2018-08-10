@@ -20,6 +20,8 @@ using namespace cv;
 using namespace std;
 
 void featureTracking(Mat img_1, Mat img_2, vector<Point2f>& points1, vector<Point2f>& points2, vector<uchar>& status) {
+	points2.clear();
+	status.clear();
 	//this function automatically gets rid of points for which tracking fails
 	vector<float> err;
 	Size winSize = Size(21, 21);
@@ -63,6 +65,7 @@ void featureDetection(const Ptr<FeatureDetector>& detector,
 	const Mat& img,
 	vector<Point2f>& points,
 	std::string mode) {
+	points.clear();
 	vector<KeyPoint> keypoints;
 	if (mode == "FAST") {
 		//uses FAST as of now, modify parameters as necessary
@@ -70,8 +73,19 @@ void featureDetection(const Ptr<FeatureDetector>& detector,
 		bool nonmaxSuppression = true;
 		FAST(img, keypoints, fast_threshold, nonmaxSuppression);
 	}
-	else {
+	else if (mode == "NeFAST") {
 		detector->detect(img, keypoints);
+	}
+	else {
+		cv::Mat mask;
+		int maxCorners = 100;
+		double qualityLevel = 0.01;
+		double minDistance = 20.;
+		int blockSize = 3;
+		bool useHarrisDetector = false;
+		double k = 0.04;
+		cv::goodFeaturesToTrack(img, points, maxCorners, qualityLevel, minDistance, mask, blockSize, useHarrisDetector, k);
+		return;
 	}
 	KeyPoint::convert(keypoints, points, vector<int>());
 }

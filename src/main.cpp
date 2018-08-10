@@ -1,13 +1,17 @@
 #include<cmath>
 #include<string>
-#include <vector>
-#include <algorithm>
+#include<vector>
+#include<algorithm>
 
 #include <boost/filesystem/operations.hpp>
 #include "vo_features.h"
 
 struct CameraParam {
-	CameraParam() : pp(607.1928, 185.2157), intrisic_mat(1, 0, 0, 0, 1, 0, 0, 0, 1) {}
+	CameraParam() : pp(607.1928, 185.2157), intrisic_mat(1, 0, 0, 0, 1, 0, 0, 0, 1),
+		dist_coeff(1, 5, CV_32F, cv::Scalar(0))
+	{
+		pp = cv::Point2f(0, 0);
+	}
 	cv::Mat     dist_coeff;
 	cv::Matx33f intrisic_mat;
 	float focal_length = 718.8560;
@@ -42,7 +46,7 @@ int LoadCameraParam(const std::string& filename, CameraParam& camera_param) {
 		if ((*it).name() == "distortion_coeffs") {
 			std::vector<float> data;
 			(*it) >> data;
-			camera_param.dist_coeff = cv::Mat(1, 5, CV_32F, data.data());
+			camera_param.dist_coeff = cv::Mat(1, 4, CV_64F, data.data());
 			for (auto& elem : data)
 				std::cout << elem << std::endl;
 		}
@@ -64,9 +68,10 @@ int LoadCameraParam(const std::string& filename, CameraParam& camera_param) {
 	return 0;
 }
 
-
 using namespace boost::filesystem;
 int main(int argc, char** argv) {
+	std::string mode = "Track";
+
 	char text[100];
 	int fontFace = FONT_HERSHEY_PLAIN;
 	double fontScale = 1;
@@ -76,77 +81,93 @@ int main(int argc, char** argv) {
 	std::string filename = "C://data//z.yaml";
 	CameraParam camera_param;
 
-	//LoadCameraParam(filename,camera_param);
+	LoadCameraParam(filename, camera_param);
 
-	//cv::namedWindow("Road facing camera1", WINDOW_AUTOSIZE);// Create a window for display.
-	cv::namedWindow("Road facing camera2", WINDOW_AUTOSIZE);// Create a window for display.
-	cv::namedWindow("Trajectory", WINDOW_AUTOSIZE);// Create a window for display.
-
-	//path p("C:\\data\\img");  
-	path p("C:\\data\\kitti\\kitti\\data");
+	path p("C:\\data\\img1");
+	//path p("C:\\data\\kitti\\kitti\\data");
 	directory_iterator end_itr;
-	directory_iterator prev_itr(p);
-	directory_iterator curr_itr(p); ++curr_itr;
+	directory_iterator curr_itr(p);
 
 	// cycle through the directory
 	Ptr<FeatureDetector> featureDetector;
 	if (!createDetectorDescriptorMatcher("ORB", featureDetector))
 		return -1;
 
+	cv::Mat img_prev = imread(curr_itr->path().string());
+	cv::Mat track_draw = img_prev;
+	cvtColor(img_prev, img_prev, COLOR_BGR2GRAY);
+	cv::Mat  img_prev_dst;
+	cv::undistort(img_prev, img_prev_dst, camera_param.intrisic_mat, camera_param.dist_coeff);
+	vector<Point2f> points_prev;
+	featureDetection(featureDetector, img_prev_dst, points_prev, "OOO");//detect features in img1
+
 	cv::Mat traj = Mat::zeros(600, 600, CV_8UC3);
 	cv::Matx31d t_f(0, 0, 0);
 	cv::Matx33d R_f(1, 0, 0, 0, 1, 0, 0, 0, 1);
 	cv::Mat E_prev;
-	for (prev_itr, curr_itr; curr_itr != end_itr; ++curr_itr, ++prev_itr) {
-		Mat img_prev = imread(prev_itr->path().string());
+
+	++curr_itr;
+	for (curr_itr; curr_itr != end_itr; ++curr_itr) {
+		cv::Mat  img_curr_dst;
 		Mat img_curr = imread(curr_itr->path().string());
-		cvtColor(img_prev, img_prev, COLOR_BGR2GRAY);
 		cvtColor(img_curr, img_curr, COLOR_BGR2GRAY);
+		cv::undistort(img_curr, img_curr_dst, camera_param.intrisic_mat, camera_param.dist_coeff);
 
 		// feature detection, tracking
-		vector<Point2f> points1, points2;//vectors to store the coordinates of the feature points
-		featureDetection(featureDetector, img_prev, points1, "NeFast");//detect features in img1
+		vector<Point2f> points_curr;//vectors to store the coordinates of the feature points
 		vector<uchar> status;
-		featureTracking(img_prev, img_curr, points1, points2, status);
-
-		cv::Mat img2_keypoints;
-		std::vector<cv::KeyPoint> draw_points2;
-		draw_points2.resize(points2.size());
-		std::for_each(draw_points2.begin(), draw_points2.end(),
-			[&points2, counter = 0](auto& it)  mutable
+		featureTracking(img_prev_dst, img_curr_dst, points_prev, points_curr, status);
+		cv::Mat img_curr_keypoints;
+		std::vector<cv::KeyPoint> draw_points_curr;
+		draw_points_curr.resize(points_curr.size());
+		std::for_each(draw_points_curr.begin(), draw_points_curr.end(),
+			[&points_curr, counter = 0](auto& it)  mutable
 		{
-			it.pt = points2[counter];
+			it.pt = points_curr[counter];
 			counter++;
 		});
-		drawKeypoints(img_curr, draw_points2, img2_keypoints, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
-		/*
-		cv::Mat img1_keypoints;
-		std::vector<cv::KeyPoint> draw_points1;
-		draw_points1.resize(points1.size());
-		std::for_each(draw_points1.begin(), draw_points1.end(),
-			[&points1, counter = 0](auto& it)  mutable
-		{
-			it.pt = points1[counter];
+		drawKeypoints(img_curr_dst, draw_points_curr, img_curr_keypoints, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
+		cv::imshow("Img_curr", img_curr_keypoints);
+		if (points_curr.empty()) {
+			std::cout << "no point tracking" << std::endl;
+			continue;
+		}
+		/// DrawOpticalFlow
+		int counter = 0;
+		for (const auto& pt2 : points_prev) {
+			auto pt1 = points_curr[counter];
+			cv::line(track_draw, pt1, pt2, Scalar(0, 125, 0));
+			cv::circle(track_draw, pt1, 2, Scalar(0, 0, 0), -1);
+			cv::imshow("TrackDraw", track_draw);
 			counter++;
-		});
-		drawKeypoints(img1, draw_points1, img1_keypoints, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
-		*/
+		}
 
 		cv::Matx31d t;
 		cv::Matx33d R;
 		Mat E, mask;
-		E = cv::findEssentialMat(points1, points2, camera_param.focal_length,
-			camera_param.pp, RANSAC, 0.999, 1.0, mask);
-		// undistortion
-		if (!E_prev.empty())
-			cv::undistortPoints(points1, points1, E_prev, camera_param.dist_coeff);
-		else
-			E_prev = cv::Mat::eye(3, 3, CV_64F);
-		cv::undistortPoints(points2, points2, E, camera_param.dist_coeff);
-		E_prev *= E;
+		if (points_curr.size() < 25) {
+			featureDetection(featureDetector, img_curr_dst, points_curr, "OOO");//detect features in img1
+			points_prev = points_curr;
+			continue;
+		}
+		if (points_curr.size() < 25) {
+			featureDetection(featureDetector, img_curr_dst, points_curr, "OOO");//detect features in img1
+			points_prev = points_curr;
+			continue;
+		}
+
+		E = cv::findEssentialMat(points_prev, points_curr, camera_param.focal_length,
+			camera_param.pp, RANSAC, 0.9, 1.0, mask);
+
 		// estimate R,T
-		cv::recoverPose(E, points1, points2, R, t, camera_param.focal_length,
+		cv::recoverPose(E, points_prev, points_curr, R, t, camera_param.focal_length,
 			camera_param.pp, mask);
+
+		if (mode != "Not_Track")
+			points_prev = points_curr;
+		else
+			featureDetection(featureDetector, img_curr_dst, points_prev, "OOO");
+
 
 		double scale = 1.0;
 		t_f = scale * t + scale * (R * t_f);
@@ -158,17 +179,14 @@ int main(int argc, char** argv) {
 		rectangle(traj, Point(10, 30), Point(550, 50), CV_RGB(0, 0, 0), CV_FILLED);
 		sprintf(text, "Coordinates: x = %02fm y = %02fm z = %02fm", t_f(0), t_f(1), t_f(2));
 		putText(traj, text, textOrg, fontFace, fontScale, Scalar::all(255), thickness, 8);
+		cv::imshow("Trajectory", traj);
 
 		// assign current file name to current_file and echo it out to the console.
 		string current_file = curr_itr->path().string();
 		cout << current_file << endl;
-		//cv::imshow("Road facing camera1", img1_keypoints);
-		cv::imshow("Road facing camera2", img2_keypoints);
-		cv::imshow("Trajectory", traj);
 
 		if (cv::waitKey(0) == 27)
 			break;
 	}
-
 	cv::destroyAllWindows();
 }
