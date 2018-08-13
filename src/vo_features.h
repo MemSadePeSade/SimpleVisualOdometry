@@ -20,8 +20,6 @@ using namespace cv;
 using namespace std;
 
 void featureTracking(Mat img_1, Mat img_2, vector<Point2f>& points1, vector<Point2f>& points2, vector<uchar>& status) {
-	points2.clear();
-	status.clear();
 	//this function automatically gets rid of points for which tracking fails
 	vector<float> err;
 	Size winSize = Size(21, 21);
@@ -31,7 +29,7 @@ void featureTracking(Mat img_1, Mat img_2, vector<Point2f>& points1, vector<Poin
 	//getting rid of points for which the KLT tracking failed or those who have gone outside the frame
 	int indexCorrection = 0;
 	for (int i = 0; i < status.size(); i++) {
-		Point2f pt = points2.at(i - indexCorrection);
+		Point2d pt = points2.at(i - indexCorrection);
 		if ((status.at(i) == 0) || (pt.x < 0) || (pt.y < 0)) {
 			if ((pt.x < 0) || (pt.y < 0)) {
 				status.at(i) = 0;
@@ -65,7 +63,6 @@ void featureDetection(const Ptr<FeatureDetector>& detector,
 	const Mat& img,
 	vector<Point2f>& points,
 	std::string mode) {
-	points.clear();
 	vector<KeyPoint> keypoints;
 	if (mode == "FAST") {
 		//uses FAST as of now, modify parameters as necessary
@@ -78,7 +75,7 @@ void featureDetection(const Ptr<FeatureDetector>& detector,
 	}
 	else {
 		cv::Mat mask;
-		int maxCorners = 100;
+		int maxCorners = 300;
 		double qualityLevel = 0.01;
 		double minDistance = 20.;
 		int blockSize = 3;
