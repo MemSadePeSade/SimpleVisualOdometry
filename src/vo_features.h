@@ -19,13 +19,41 @@
 using namespace cv;
 using namespace std;
 
-void featureTracking(Mat img_1, Mat img_2, vector<Point2f>& points1, vector<Point2f>& points2, vector<uchar>& status) {
+enum Processor {
+	CPU, CUDA
+};
+
+void featureTracking(const Mat& img_1, const Mat& img_2,
+	vector<Point2f>& points1, vector<Point2f>& points2,
+	vector<uchar>& status,
+	Processor p = CPU) {
 	//this function automatically gets rid of points for which tracking fails
 	vector<float> err;
 	Size winSize = Size(21, 21);
+	int maxLevel = 3;
 	TermCriteria termcrit = TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.01);
 
-	calcOpticalFlowPyrLK(img_1, img_2, points1, points2, status, err, winSize, 3, termcrit, 0, 0.001);
+	switch (p){
+	case CPU: 
+		calcOpticalFlowPyrLK(img_1, img_2, points1, points2, status, err, winSize, 3, termcrit, 0, 0.001);
+    #ifdef WITH_CUDA
+	case CUDA: {
+		GpuMat gpu_img1(img1);
+		GpuMat gpu_img2(img2);
+		GpuMat gpu_points1(points1);
+		GpuMat gpu_points2;
+		GpuMat d_status;
+
+		Ptr<cuda::SparsePyrLKOpticalFlow> d_pyrLK_sparse = cuda::SparsePyrLKOpticalFlow::create(
+			Size(winSize, winSize), maxLevel, iters);
+		d_pyrLK_sparse->calc(gpu_img1, gpu_img2, gpu_points1, gpu_points2, d_status);
+
+		vector<Point2f> prev_pts_tmp(gpu_points1.cols); points1 = prev_pts_tmp;
+		vector<Point2f> next_pts_tmp(gpu_points2.cols); points2 = next_pts_tmp;
+		vector<uchar>   status_tmp(d_status.cols);      status = status_tmp;
+	}
+    #endif
+	}
 	//getting rid of points for which the KLT tracking failed or those who have gone outside the frame
 	int indexCorrection = 0;
 	for (int i = 0; i < status.size(); i++) {
@@ -62,27 +90,42 @@ static bool createDetectorDescriptorMatcher(const string& detector_type,
 void featureDetection(const Ptr<FeatureDetector>& detector,
 	const Mat& img,
 	vector<Point2f>& points,
-	std::string mode) {
-	vector<KeyPoint> keypoints;
-	if (mode == "FAST") {
-		//uses FAST as of now, modify parameters as necessary
-		int fast_threshold = 20;
-		bool nonmaxSuppression = true;
-		FAST(img, keypoints, fast_threshold, nonmaxSuppression);
+	std::string mode,
+	Processor p = CPU) {
+	points.clear();
+	switch (p) {
+	case CPU: {
+		vector<KeyPoint> keypoints;
+		if (mode == "FAST") {
+			//uses FAST as of now, modify parameters as necessary
+			int fast_threshold = 20;
+			bool nonmaxSuppression = true;
+			FAST(img, keypoints, fast_threshold, nonmaxSuppression);
+		}
+		else if (mode == "NeFAST") {
+			detector->detect(img, keypoints);
+		}
+		else {
+			cv::Mat mask;
+			int maxCorners = 300;
+			double qualityLevel = 0.01;
+			double minDistance = 20.;
+			int blockSize = 3;
+			bool useHarrisDetector = false;
+			double k = 0.04;
+			cv::goodFeaturesToTrack(img, points, maxCorners, qualityLevel, minDistance, mask, blockSize, useHarrisDetector, k);
+			return;
+		}
+		KeyPoint::convert(keypoints, points, vector<int>());
 	}
-	else if (mode == "NeFAST") {
-		detector->detect(img, keypoints);
+    #ifdef WITH_CUDA
+	case CUDA: {
+		GpuMat gpu_points;
+		GpuMat gpu_img(img);
+		Ptr<cuda::CornersDetector> detector = cuda::createGoodFeaturesToTrackDetector(d_frame0Gray.type(), points, 0.01, minDist);
+		detector->detect(gpu_img, gpu_points);
+		points(gpu_points.cols);
 	}
-	else {
-		cv::Mat mask;
-		int maxCorners = 300;
-		double qualityLevel = 0.01;
-		double minDistance = 20.;
-		int blockSize = 3;
-		bool useHarrisDetector = false;
-		double k = 0.04;
-		cv::goodFeaturesToTrack(img, points, maxCorners, qualityLevel, minDistance, mask, blockSize, useHarrisDetector, k);
-		return;
+    #endif
 	}
-	KeyPoint::convert(keypoints, points, vector<int>());
 }
