@@ -271,7 +271,7 @@ int main(int argc, const char* argv[]) {
 		string current_file = curr_itr->path().string();
 		cout << current_file << endl;
 
-		if (cv::waitKey(1) == 27)
+		if (cv::waitKey(0) == 27)
 			break;
 	}
 	cv::destroyAllWindows();
