@@ -16,8 +16,28 @@
 #include "opencv2/calib3d/calib3d.hpp"
 #include "opencv2/opencv.hpp"
 
+#ifdef WITH_CUDA
+#include <opencv2/cudaoptflow.hpp>
+#include <opencv2/cudaimgproc.hpp>
+#include <opencv2/cudaarithm.hpp>
+#endif
+
 using namespace cv;
 using namespace std;
+
+static void download(const cv::cuda::GpuMat& d_mat, vector<Point2f>& vec)
+{
+	vec.resize(d_mat.cols);
+	Mat mat(1, d_mat.cols, CV_32FC2, (void*)&vec[0]);
+	d_mat.download(mat);
+}
+
+static void download(const cv::cuda::GpuMat& d_mat, vector<uchar>& vec)
+{
+	vec.resize(d_mat.cols);
+	Mat mat(1, d_mat.cols, CV_8UC1, (void*)&vec[0]);
+	d_mat.download(mat);
+}
 
 enum Processor {
 	CPU, CUDA
@@ -30,29 +50,30 @@ void featureTracking(const Mat& img_1, const Mat& img_2,
 	//this function automatically gets rid of points for which tracking fails
 	vector<float> err;
 	Size winSize = Size(21, 21);
+	int iters = 30;
 	int maxLevel = 3;
 	TermCriteria termcrit = TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.01);
 
-	switch (p){
-	case CPU: 
+	switch (p) {
+	case CPU:
 		calcOpticalFlowPyrLK(img_1, img_2, points1, points2, status, err, winSize, 3, termcrit, 0, 0.001);
-    #ifdef WITH_CUDA
+#ifdef WITH_CUDA
 	case CUDA: {
-		GpuMat gpu_img1(img1);
-		GpuMat gpu_img2(img2);
-		GpuMat gpu_points1(points1);
-		GpuMat gpu_points2;
-		GpuMat d_status;
+		cv::cuda::GpuMat gpu_img1(img_1);
+		cv::cuda::GpuMat gpu_img2(img_2);
+		cv::cuda::GpuMat gpu_points1(points1);
+		cv::cuda::GpuMat gpu_points2;
+		cv::cuda::GpuMat d_status;
 
-		Ptr<cuda::SparsePyrLKOpticalFlow> d_pyrLK_sparse = cuda::SparsePyrLKOpticalFlow::create(
-			Size(winSize, winSize), maxLevel, iters);
+		cv::Ptr<cv::cuda::SparsePyrLKOpticalFlow> d_pyrLK_sparse = cv::cuda::SparsePyrLKOpticalFlow::create(winSize, maxLevel, iters);
 		d_pyrLK_sparse->calc(gpu_img1, gpu_img2, gpu_points1, gpu_points2, d_status);
 
-		vector<Point2f> prev_pts_tmp(gpu_points1.cols); points1 = prev_pts_tmp;
-		vector<Point2f> next_pts_tmp(gpu_points2.cols); points2 = next_pts_tmp;
-		vector<uchar>   status_tmp(d_status.cols);      status = status_tmp;
+		points2.clear();
+		points2.resize(gpu_points2.cols); download(gpu_points2, points2);
+		status.clear();
+		status.resize(d_status.cols); download(d_status, status);
 	}
-    #endif
+#endif
 	}
 	//getting rid of points for which the KLT tracking failed or those who have gone outside the frame
 	int indexCorrection = 0;
@@ -70,7 +91,7 @@ void featureTracking(const Mat& img_1, const Mat& img_2,
 }
 
 static bool createDetectorDescriptorMatcher(const string& detector_type,
-	Ptr<FeatureDetector>& detector) {
+	cv::Ptr<FeatureDetector>& detector) {
 	cout << "<Creating feature detector" << endl;
 	if (detector_type == "SIFT") {
 		detector = cv::xfeatures2d::SIFT::create();
@@ -92,6 +113,8 @@ void featureDetection(const Ptr<FeatureDetector>& detector,
 	vector<Point2f>& points,
 	std::string mode,
 	Processor p = CPU) {
+	int num_points = 4000;
+	double minDist = 0;
 	points.clear();
 	switch (p) {
 	case CPU: {
@@ -118,14 +141,15 @@ void featureDetection(const Ptr<FeatureDetector>& detector,
 		}
 		KeyPoint::convert(keypoints, points, vector<int>());
 	}
-    #ifdef WITH_CUDA
+#ifdef WITH_CUDA
 	case CUDA: {
-		GpuMat gpu_points;
-		GpuMat gpu_img(img);
-		Ptr<cuda::CornersDetector> detector = cuda::createGoodFeaturesToTrackDetector(d_frame0Gray.type(), points, 0.01, minDist);
+		cv::cuda::GpuMat gpu_points;
+		cv::cuda::GpuMat gpu_img(img);
+		cv::Ptr<cv::cuda::CornersDetector> detector = cv::cuda::createGoodFeaturesToTrackDetector(gpu_img.type(), num_points, 0.01, minDist);
 		detector->detect(gpu_img, gpu_points);
-		points(gpu_points.cols);
+		points.resize(gpu_points.cols);
+		download(gpu_points, points);
 	}
-    #endif
+#endif
 	}
 }

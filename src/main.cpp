@@ -4,24 +4,25 @@
 #include<algorithm>
 
 #include <boost/filesystem/operations.hpp>
+#include "opencv2/core/utility.hpp"
 #include "vo_features.h"
 
 #define MAX_FRAME 384
 #define MIN_NUM_FEAT 2000
 
 // Checks if a matrix is a valid rotation matrix.
-bool isRotationMatrix(cv::Matx33d& R){
+bool isRotationMatrix(cv::Matx33d& R) {
 	cv::Matx33d Rt;
-	transpose(R, Rt);
+	cv::transpose(R, Rt);
 	cv::Matx33d shouldBeIdentity = Rt * R;
 	Mat I = Mat::eye(3, 3, CV_64F);
-	return  norm(I, shouldBeIdentity) < 1e-6;
+	return  cv::norm(I, shouldBeIdentity) < 1e-6;
 }
 
 // Calculates rotation matrix to euler angles
 // The result is the same as MATLAB except the order
 // of the euler angles ( x and z are swapped ).
-Vec3f rotationMatrixToEulerAngles(cv::Matx33d &R){
+Vec3f rotationMatrixToEulerAngles(cv::Matx33d &R) {
 	assert(isRotationMatrix(R));
 
 	float sy = sqrt(R(0, 0) * R(0, 0) + R(1, 0) * R(1, 0));
@@ -46,10 +47,10 @@ Vec3f rotationMatrixToEulerAngles(cv::Matx33d &R){
 
 struct CameraParam {
 	CameraParam() : pp(358.9874749825216, 201.7120939366421), intrisic_mat(1, 0, 0, 0, 1, 0, 0, 0, 1),
-		dist_coeff(0,0,0,0){}
-	cv::Matx<double,1,4> dist_coeff;
+		dist_coeff(0, 0, 0, 0) {}
+	cv::Matx<double, 1, 4> dist_coeff;
 	cv::Matx33d intrisic_mat;
-    float focal_length = 681.609;
+	float focal_length = 681.609;
 	cv::Point2d pp;
 };
 
@@ -104,20 +105,39 @@ int LoadCameraParam(const std::string& filename, CameraParam& camera_param) {
 }
 
 using namespace boost::filesystem;
-int main(int argc, char** argv) {
+int main(int argc, const char* argv[]) {
+	const char* keys =
+		"{help h usage ?  |    | print help message }"
+		"{@calib   |        | specify calib file }"
+		"{@dir  |       | specify imgs folder }";
+	CommandLineParser cmd(argc, argv, keys);
+	if (cmd.has("help") || !cmd.check())
+	{
+		cmd.printMessage();
+		cmd.printErrors();
+		return 0;
+	}
+
+	string calib_filename = cmd.get<string>("@calib");
+	CameraParam camera_param;
+	if (!exists(calib_filename))
+		std::cout << "No calibrated file" << std::endl;
+	else
+		LoadCameraParam(calib_filename, camera_param);
+
+	string dir_imgs = cmd.get<string>("@dir");
+	if (!exists(dir_imgs)) {
+		std::cout << "No dir with images" << std::endl;
+		return 0;
+	}
+
 	char text[100];
 	int fontFace = FONT_HERSHEY_PLAIN;
 	double fontScale = 1;
 	int thickness = 1;
 	cv::Point textOrg(10, 50);
 
-	std::string filename = "C://data//z.yaml";
-	CameraParam camera_param;
-
-	LoadCameraParam(filename, camera_param);
-
-	path p("C:\\data\\img1");
-	//path p("C:\\data\\kitti\\kitti\\data");
+	path p(dir_imgs);
 	directory_iterator end_itr;
 	directory_iterator curr_itr(p);
 
@@ -128,7 +148,7 @@ int main(int argc, char** argv) {
 
 	cv::Mat img_prev = imread(curr_itr->path().string());
 	cv::Mat track_draw = img_prev;
-	cvtColor(img_prev, img_prev, COLOR_BGR2GRAY);
+	cv::cvtColor(img_prev, img_prev, COLOR_BGR2GRAY);
 	cv::Mat  img_prev_dst;
 	cv::undistort(img_prev, img_prev_dst, camera_param.intrisic_mat, camera_param.dist_coeff);
 	vector<Point2f> points_prev;
@@ -140,17 +160,17 @@ int main(int argc, char** argv) {
 
 	++curr_itr;
 	int counter = 0;
-	for (counter,curr_itr; curr_itr != end_itr; ++curr_itr, ++counter) {
+	for (counter, curr_itr; curr_itr != end_itr; ++curr_itr, ++counter) {
 		cv::Mat  img_curr_dst;
-		Mat img_curr = imread(curr_itr->path().string());
-		cvtColor(img_curr, img_curr, COLOR_BGR2GRAY);
+		cv::Mat img_curr = imread(curr_itr->path().string());
+		cv::cvtColor(img_curr, img_curr, COLOR_BGR2GRAY);
 		cv::undistort(img_curr, img_curr_dst, camera_param.intrisic_mat, camera_param.dist_coeff);
 
 		// feature detection, tracking
 		vector<Point2f> points_curr;//vectors to store the coordinates of the feature points
 		vector<uchar> status;
 		featureTracking(img_prev_dst, img_curr_dst, points_prev, points_curr, status);
-		
+
 		cv::Mat img_curr_keypoints;
 		std::vector<cv::KeyPoint> draw_points_curr;
 		draw_points_curr.resize(points_curr.size());
@@ -177,11 +197,11 @@ int main(int argc, char** argv) {
 			cv::imshow("TrackDraw", draw_img);
 			counter++;
 		}
-		
+
 		cv::Matx31d t;
 		cv::Matx33d R;
 		Mat E, mask;
-		
+
 		if (points_curr.size() < 25) {
 			featureDetection(featureDetector, img_curr_dst, points_curr, "OOO");//detect features in img1
 			points_prev = points_curr;
@@ -194,7 +214,7 @@ int main(int argc, char** argv) {
 			img_prev_dst = img_curr_dst.clone();
 			continue;
 		}
-		
+
 		E = cv::findEssentialMat(points_curr, points_prev, camera_param.focal_length,
 			camera_param.pp, RANSAC, 0.9, 1.0, mask);
 
@@ -210,15 +230,15 @@ int main(int argc, char** argv) {
 			auto euler_angles2 = rotationMatrixToEulerAngles(R2);
 			//std::cout << euler_angles2 << std::endl;
 
-			auto dist1 = abs(euler_angles1(0))+ abs(euler_angles1(1))+ abs(euler_angles1(2));
+			auto dist1 = abs(euler_angles1(0)) + abs(euler_angles1(1)) + abs(euler_angles1(2));
 			auto dist2 = abs(euler_angles2(0)) + abs(euler_angles2(1)) + abs(euler_angles2(2));
-			if (dist1 < dist2) 
+			if (dist1 < dist2)
 				cv::recoverPose(E, points_curr, points_prev, R, t, camera_param.focal_length,
 					camera_param.pp, mask); //R = R1;
 			else
 				R = R2;
 		}
-		
+
 		// a redetection is triggered in case the number of feautres being trakced go below a particular threshold
 		if (points_prev.size() < MIN_NUM_FEAT) {
 			//cout << "Number of tracked features reduced to " << prevFeatures.size() << endl;
@@ -226,18 +246,18 @@ int main(int argc, char** argv) {
 			featureDetection(featureDetector, img_prev_dst, points_prev, "OOO");
 			featureTracking(img_prev_dst, img_curr_dst, points_prev, points_curr, status);
 		}
-		
+
 		double scale = 4.0;
-		
-		if ((scale>0.1) && (t(2) > t(0)) && (t(2) > t(1))) {
+
+		if ((scale > 0.1) && (t(2) > t(0)) && (t(2) > t(1))) {
 			t_f = t_f + scale * (R_f*t);
 			R_f = R * R_f;
 		}
 		else {}
-		
+
 		img_prev_dst = img_curr_dst.clone();
 		points_prev = points_curr;
-		
+
 		int x = int(t_f(0)) + 400;
 		int y = int(t_f(2)) + 400;
 		circle(traj, Point(800 - (x / 1 + 200), y / 1 + 300), 1, CV_RGB(255, 0, 0), 1);
