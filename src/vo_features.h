@@ -46,7 +46,7 @@ enum Processor {
 void featureTracking(const Mat& img_1, const Mat& img_2,
 	vector<Point2f>& points1, vector<Point2f>& points2,
 	vector<uchar>& status,
-	Processor p = CPU) {
+	Processor p = CUDA) {
 	//this function automatically gets rid of points for which tracking fails
 	vector<float> err;
 	Size winSize = Size(21, 21);
@@ -55,7 +55,7 @@ void featureTracking(const Mat& img_1, const Mat& img_2,
 	TermCriteria termcrit = TermCriteria(TermCriteria::COUNT + TermCriteria::EPS, 30, 0.01);
 
 	switch (p) {
-	case CPU:
+	default:
 		calcOpticalFlowPyrLK(img_1, img_2, points1, points2, status, err, winSize, 3, termcrit, 0, 0.001);
 #ifdef WITH_CUDA
 	case CUDA: {
@@ -112,12 +112,12 @@ void featureDetection(const Ptr<FeatureDetector>& detector,
 	const Mat& img,
 	vector<Point2f>& points,
 	std::string mode,
-	Processor p = CPU) {
+	Processor p = CUDA) {
 	int num_points = 4000;
 	double minDist = 0;
 	points.clear();
 	switch (p) {
-	case CPU: {
+	default: {
 		vector<KeyPoint> keypoints;
 		if (mode == "FAST") {
 			//uses FAST as of now, modify parameters as necessary

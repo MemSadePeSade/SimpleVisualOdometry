@@ -104,12 +104,24 @@ int LoadCameraParam(const std::string& filename, CameraParam& camera_param) {
 	return 0;
 }
 
+namespace {
+	double focal = 681.609;
+	cv::Point2d pp(358.9874749825216, 201.7120939366421);
+	
+	char text[100];
+	int fontFace = FONT_HERSHEY_PLAIN;
+	double fontScale = 1;
+	int thickness = 1;
+	cv::Point textOrg(10, 50);
+	const char *img_path = "C:\\Users\\vponomarev\\Desktop\\01\\img_datasets\\e1i90v1a30_undistorted\\frame%06d.jpg";
+	//const char *img_path = "C:\\Users\\vponomarev\\Desktop\\01\\img_datasets\\e1i90v1a30\\frame%06d.jpg";
+} // unnamed namespace
 using namespace boost::filesystem;
+
 int main(int argc, const char* argv[]) {
 	const char* keys =
 		"{help h usage ?  |    | print help message }"
-		"{@calib   |        | specify calib file }"
-		"{@dir  |       | specify imgs folder }";
+		"{@calib   |        | specify calib file }";
 	CommandLineParser cmd(argc, argv, keys);
 	if (cmd.has("help") || !cmd.check())
 	{
@@ -125,52 +137,43 @@ int main(int argc, const char* argv[]) {
 	else
 		LoadCameraParam(calib_filename, camera_param);
 
-	string dir_imgs = cmd.get<string>("@dir");
-	if (!exists(dir_imgs)) {
-		std::cout << "No dir with images" << std::endl;
-		return 0;
-	}
-
-	char text[100];
-	int fontFace = FONT_HERSHEY_PLAIN;
-	double fontScale = 1;
-	int thickness = 1;
-	cv::Point textOrg(10, 50);
-
-	path p(dir_imgs);
-	directory_iterator end_itr;
-	directory_iterator curr_itr(p);
-
 	// cycle through the directory
 	Ptr<FeatureDetector> featureDetector;
 	if (!createDetectorDescriptorMatcher("ORB", featureDetector))
 		return -1;
 
-	cv::Mat img_prev = imread(curr_itr->path().string());
-	cv::Mat track_draw = img_prev;
+	int counter = 0;
+	char filename[200];
+	sprintf(filename, img_path, counter);
+	
+	cv::Mat img_prev = imread(filename);
+	cv::Mat track_draw = img_prev;	
 	cv::cvtColor(img_prev, img_prev, COLOR_BGR2GRAY);
-	cv::Mat  img_prev_dst;
-	cv::undistort(img_prev, img_prev_dst, camera_param.intrisic_mat, camera_param.dist_coeff);
+	//cv::Mat img_prev_dst;
+	//cv::undistort(img_prev, img_prev_dst, camera_param.intrisic_mat, camera_param.dist_coeff);
 	vector<Point2f> points_prev;
-	featureDetection(featureDetector, img_prev_dst, points_prev, "OOO");//detect features in img1
+	featureDetection(featureDetector, img_prev, points_prev, "OOO");//detect features in img1
 
-	cv::Mat traj = Mat::zeros(1200, 1200, CV_8UC3);
+	cv::Mat traj = Mat::zeros(600, 600, CV_8UC3);
 	cv::Matx31d t_f(0, 0, 0);
 	cv::Matx33d R_f(1, 0, 0, 0, 1, 0, 0, 0, 1);
 
-	++curr_itr;
-	int counter = 0;
-	for (counter, curr_itr; curr_itr != end_itr; ++curr_itr, ++counter) {
-		cv::Mat  img_curr_dst;
-		cv::Mat img_curr = imread(curr_itr->path().string());
+	std::clock_t start;
+	double duration;
+	start = std::clock();
+	
+	for (counter = 1; counter < 384; ++counter) {
+		sprintf(filename, img_path, counter);
+		cv::Mat img_curr = imread(filename);
 		cv::cvtColor(img_curr, img_curr, COLOR_BGR2GRAY);
-		cv::undistort(img_curr, img_curr_dst, camera_param.intrisic_mat, camera_param.dist_coeff);
+		//cv::Mat img_curr_dst;
+		//cv::undistort(img_curr, img_curr_dst, camera_param.intrisic_mat, camera_param.dist_coeff);
 
 		// feature detection, tracking
 		vector<Point2f> points_curr;//vectors to store the coordinates of the feature points
 		vector<uchar> status;
-		featureTracking(img_prev_dst, img_curr_dst, points_prev, points_curr, status);
-
+		featureTracking(img_prev, img_curr, points_prev, points_curr, status);
+		/*
 		cv::Mat img_curr_keypoints;
 		std::vector<cv::KeyPoint> draw_points_curr;
 		draw_points_curr.resize(points_curr.size());
@@ -180,14 +183,14 @@ int main(int argc, const char* argv[]) {
 			it.pt = points_curr[counter];
 			counter++;
 		});
-		drawKeypoints(img_curr_dst, draw_points_curr, img_curr_keypoints, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
+		drawKeypoints(img_curr, draw_points_curr, img_curr_keypoints, Scalar::all(-1), DrawMatchesFlags::DEFAULT);
 		cv::imshow("Img_curr", img_curr_keypoints);
 		if (points_curr.empty()) {
 			std::cout << "no point tracking" << std::endl;
 			continue;
 		}
 		/// DrawOpticalFlow
-		auto draw_img = img_curr_dst.clone();
+		auto draw_img = img_curr.clone();
 		int counter = 0;
 		for (const auto& pt2 : points_prev) {
 			auto pt1 = points_curr[counter];
@@ -197,54 +200,47 @@ int main(int argc, const char* argv[]) {
 			cv::imshow("TrackDraw", draw_img);
 			counter++;
 		}
-
+		*/
 		cv::Matx31d t;
 		cv::Matx33d R;
 		Mat E, mask;
 
-		if (points_curr.size() < 25) {
-			featureDetection(featureDetector, img_curr_dst, points_curr, "OOO");//detect features in img1
-			points_prev = points_curr;
-			img_prev_dst = img_curr_dst.clone();
-			continue;
-		}
-		if (points_curr.size() < 25) {
-			featureDetection(featureDetector, img_curr_dst, points_curr, "OOO");//detect features in img1
-			points_prev = points_curr;
-			img_prev_dst = img_curr_dst.clone();
-			continue;
-		}
-
-		E = cv::findEssentialMat(points_curr, points_prev, camera_param.focal_length,
-			camera_param.pp, RANSAC, 0.9, 1.0, mask);
+		E = cv::findEssentialMat(points_curr, points_prev, focal, pp, RANSAC, 0.999, 1.0, mask);
 
 		// estimate R,T
-		if (counter == 0)
-			cv::recoverPose(E, points_curr, points_prev, R, t, camera_param.focal_length,
-				camera_param.pp, mask);
+		if (counter == 1) {
+			cv::recoverPose(E, points_curr, points_prev, R, t, focal, pp, mask);
+			R_f = R ;
+			t_f = t;
+			img_prev = img_curr.clone();
+			//img_prev_dst = img_curr_dst.clone();
+			points_prev = points_curr;
+			continue;
+		}
 		else {
 			cv::Matx33d R1, R2;
-			cv::decomposeEssentialMat(E, R1, R2, t);
+			cv::Matx31d T;
+			
+			cv::decomposeEssentialMat(E, R1, R2, T);
 			auto euler_angles1 = rotationMatrixToEulerAngles(R1);
-			//std::cout << euler_angles1 << std::endl;
 			auto euler_angles2 = rotationMatrixToEulerAngles(R2);
-			//std::cout << euler_angles2 << std::endl;
-
 			auto dist1 = abs(euler_angles1(0)) + abs(euler_angles1(1)) + abs(euler_angles1(2));
 			auto dist2 = abs(euler_angles2(0)) + abs(euler_angles2(1)) + abs(euler_angles2(2));
+			
 			if (dist1 < dist2)
-				cv::recoverPose(E, points_curr, points_prev, R, t, camera_param.focal_length,
-					camera_param.pp, mask); //R = R1;
-			else
+				cv::recoverPose(E, points_curr, points_prev, R, t, focal, pp, mask); 
+			else {
 				R = R2;
+				t = T;
+			}
 		}
 
 		// a redetection is triggered in case the number of feautres being trakced go below a particular threshold
 		if (points_prev.size() < MIN_NUM_FEAT) {
 			//cout << "Number of tracked features reduced to " << prevFeatures.size() << endl;
 			//cout << "trigerring redection" << endl;
-			featureDetection(featureDetector, img_prev_dst, points_prev, "OOO");
-			featureTracking(img_prev_dst, img_curr_dst, points_prev, points_curr, status);
+			featureDetection(featureDetector, img_prev, points_prev, "OOO");
+			featureTracking(img_prev, img_curr, points_prev, points_curr, status);
 		}
 
 		double scale = 4.0;
@@ -253,26 +249,29 @@ int main(int argc, const char* argv[]) {
 			t_f = t_f + scale * (R_f*t);
 			R_f = R * R_f;
 		}
-		else {}
 
-		img_prev_dst = img_curr_dst.clone();
+		img_prev = img_curr.clone();
+		//img_prev_dst = img_curr_dst.clone();
 		points_prev = points_curr;
-
-		int x = int(t_f(0)) + 400;
-		int y = int(t_f(2)) + 400;
-		circle(traj, Point(800 - (x / 1 + 200), y / 1 + 300), 1, CV_RGB(255, 0, 0), 1);
-
-		rectangle(traj, Point(10, 30), Point(550, 50), CV_RGB(0, 0, 0), CV_FILLED);
+		
+		int x = int(t_f(0)) ;
+		int y = int(t_f(2)) ;
+		
+		circle(traj, Point(600 - (x / 1 + 200), y / 1 + 300), 1, CV_RGB(255, 0, 0), 1);
+        rectangle(traj, Point(10, 30), Point(550, 50), CV_RGB(0, 0, 0), CV_FILLED);
+		
 		sprintf(text, "Coordinates: x = %02fm y = %02fm z = %02fm", t_f(0), t_f(1), t_f(2));
 		putText(traj, text, textOrg, fontFace, fontScale, Scalar::all(255), thickness, 8);
 		cv::imshow("Trajectory", traj);
-
+		
 		// assign current file name to current_file and echo it out to the console.
-		string current_file = curr_itr->path().string();
-		cout << current_file << endl;
-
+		//string current_file = curr_itr->path().string();
+		//cout << current_file << endl;
+		
 		if (cv::waitKey(0) == 27)
 			break;
 	}
 	cv::destroyAllWindows();
+	duration = (std::clock() - start) / (double)CLOCKS_PER_SEC;
+	std::cout << "printf: " << duration << '\n';
 }
