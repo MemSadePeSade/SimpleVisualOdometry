@@ -134,8 +134,8 @@ void DrawOpticalFlow(std::vector<cv::Point2f> points_prev,
 }
 
 namespace {
-	double focal = 681.609;
-	cv::Point2d pp(358.9874749825216, 201.7120939366421);
+	//double focal = 681.609;
+	//cv::Point2d pp(358.9874749825216, 201.7120939366421);
 	
 	char text[100];
 	int fontFace = cv::FONT_HERSHEY_PLAIN;
@@ -183,7 +183,7 @@ int main(int argc, const char* argv[]) {
 	featureDetection(featureDetector, img_prev, points_prev, FeatureType::GFTT);//detect features in img1
 
 	int keyFrame = 1;
-	const double KeyFrThresh = 2.4;
+	const double KeyFrThresh = 0.0;
 	cv::Point2f point_keyfr(0, 0);
 	
 	cv::Mat traj = cv::Mat::zeros(600, 600, CV_8UC3);
@@ -215,11 +215,13 @@ int main(int argc, const char* argv[]) {
 		cv::Matx33d R;
 		cv::Mat E, mask;
 
-		E = cv::findEssentialMat(points_curr, points_prev, focal, pp, cv::RANSAC, 0.999, 1.0, mask);
+		E = cv::findEssentialMat(points_curr, points_prev, camera_param.focal_length, 
+			                     camera_param.pp, cv::RANSAC, 0.999, 1.0, mask);
 
 		// estimate R,T
 		if (counter == 1) {
-			cv::recoverPose(E, points_curr, points_prev, R, t, focal, pp, mask);
+			cv::recoverPose(E, points_curr, points_prev, R, t, camera_param.focal_length,
+				            camera_param.pp, mask);
 			R_f = R ;
 			t_f = t;
 			img_prev = img_curr.clone();
@@ -242,7 +244,8 @@ int main(int argc, const char* argv[]) {
 			auto dist2 = abs(euler_angles2(0)) + abs(euler_angles2(1)) + abs(euler_angles2(2));
 			
 			if (dist1 < dist2)
-				cv::recoverPose(E, points_curr, points_prev, R, t, focal, pp, mask); 
+				cv::recoverPose(E, points_curr, points_prev, R, t, camera_param.focal_length,
+					            camera_param.pp, mask);
 			else {
 				R = R2;
 				t = T;
