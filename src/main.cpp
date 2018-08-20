@@ -13,7 +13,7 @@
 #define MIN_NUM_FEAT 2000
 
 // Checks if a matrix is a valid rotation matrix.
-bool isRotationMatrix(cv::Matx33d& R) {
+bool isRotationMatrix(const cv::Matx33d& R) {
 	cv::Matx33d Rt;
 	cv::transpose(R, Rt);
 	cv::Matx33d shouldBeIdentity = Rt * R;
@@ -24,10 +24,10 @@ bool isRotationMatrix(cv::Matx33d& R) {
 // Calculates rotation matrix to euler angles
 // The result is the same as MATLAB except the order
 // of the euler angles ( x and z are swapped ).
-cv::Vec3d rotationMatrixToEulerAngles(cv::Matx33d &R) {
+cv::Vec3d rotationMatrixToEulerAngles(const cv::Matx33d &R) {
 	assert(isRotationMatrix(R));
 
-    double sy = sqrt(R(0, 0) * R(0, 0) + R(1, 0) * R(1, 0));
+	double sy = sqrt(R(0, 0) * R(0, 0) + R(1, 0) * R(1, 0));
 
 	bool singular = sy < 1e-6; // If
 
@@ -80,7 +80,7 @@ int LoadCameraParam(const std::string& filename, CameraParam& camera_param) {
 	cv::FileNodeIterator it = n.begin(), it_end = n.end(); // Go through the node
 	for (; it != it_end; ++it)
 	{
-	std:: cout << (*it).name() << std::endl;
+		std::cout << (*it).name() << std::endl;
 		if ((*it).name() == "distortion_coeffs") {
 			std::vector<double> data;
 			(*it) >> data;
@@ -106,8 +106,8 @@ int LoadCameraParam(const std::string& filename, CameraParam& camera_param) {
 	return 0;
 }
 
-void DrawOpticalFlow(std::vector<cv::Point2f> points_prev,
-	                 std::vector<cv::Point2f> points_curr, cv::Mat img_curr){
+void DrawOpticalFlow(std::vector<cv::Point2f>& points_prev,
+	std::vector<cv::Point2f>& points_curr, cv::Mat& img_curr) {
 	cv::Mat img_curr_keypoints;
 	std::vector<cv::KeyPoint> draw_points_curr;
 	draw_points_curr.resize(points_curr.size());
@@ -117,7 +117,7 @@ void DrawOpticalFlow(std::vector<cv::Point2f> points_prev,
 		it.pt = points_curr[counter];
 		counter++;
 	});
-	drawKeypoints(img_curr, draw_points_curr, img_curr_keypoints, cv::Scalar::all(-1), cv::DrawMatchesFlags::DEFAULT);
+	cv::drawKeypoints(img_curr, draw_points_curr, img_curr_keypoints, cv::Scalar::all(-1), cv::DrawMatchesFlags::DEFAULT);
 	cv::imshow("Img_curr", img_curr_keypoints);
 
 	/// DrawOpticalFlow
@@ -134,9 +134,6 @@ void DrawOpticalFlow(std::vector<cv::Point2f> points_prev,
 }
 
 namespace {
-	//double focal = 681.609;
-	//cv::Point2d pp(358.9874749825216, 201.7120939366421);
-	
 	char text[100];
 	int fontFace = cv::FONT_HERSHEY_PLAIN;
 	double fontScale = 1;
@@ -146,7 +143,18 @@ namespace {
 	//const char *img_path = "C:\\Users\\vponomarev\\Desktop\\01\\img_datasets\\e1i90v1a30\\frame%06d.jpg";
 } // unnamed namespace
 
+void DrawTrajectory(const cv::Matx31d& t_f, const cv::Mat traj) {
+	int x = int(t_f(0));
+	int y = int(t_f(2));
+	circle(traj, cv::Point(600 - (x / 1 + 200), y / 1 + 300), 1, CV_RGB(255, 0, 0), 1);
+	rectangle(traj, cv::Point(10, 30), cv::Point(550, 50), CV_RGB(0, 0, 0), CV_FILLED);
+	sprintf(text, "Coordinates: x = %02fm y = %02fm z = %02fm", t_f(0), t_f(1), t_f(2));
+	putText(traj, text, textOrg, fontFace, fontScale, cv::Scalar::all(255), thickness, 8);
+	cv::imshow("Trajectory", traj);
+}
+
 int main(int argc, const char* argv[]) {
+	const FeatureType kFeatureType = FeatureType::GFTT;
 	const char* keys =
 		"{help h usage ?  |    | print help message }"
 		"{@calib   |        | specify calib file }";
@@ -166,26 +174,25 @@ int main(int argc, const char* argv[]) {
 		LoadCameraParam(calib_filename, camera_param);
 
 	cv::Ptr<cv::FeatureDetector> featureDetector;
-	if (!createDetectorDescriptorMatcher(FeatureType::GFTT, featureDetector))
+	if (!createDetectorDescriptorMatcher(kFeatureType, featureDetector))
 		return -1;
 
 	int counter = 0;
 	char filename[200];
 	sprintf(filename, img_path, counter);
-	
+
 	cv::Mat img_prev = cv::imread(filename);
-	cv::Mat track_draw = img_prev;	
 	cv::cvtColor(img_prev, img_prev, cv::COLOR_BGR2GRAY);
 	//cv::Mat img_prev_dst;
 	//cv::undistort(img_prev, img_prev_dst, camera_param.intrisic_mat, camera_param.dist_coeff);
-	
+
 	std::vector<cv::Point2f> points_prev;
-	featureDetection(featureDetector, img_prev, points_prev, FeatureType::GFTT);//detect features in img1
+	featureDetection(featureDetector, img_prev, points_prev, kFeatureType);//detect features in img1
 
 	int keyFrame = 1;
 	const double KeyFrThresh = 0.0;
 	cv::Point2f point_keyfr(0, 0);
-	
+
 	cv::Mat traj = cv::Mat::zeros(600, 600, CV_8UC3);
 	cv::Matx31d t_f(0, 0, 0);
 	cv::Matx33d R_f(1, 0, 0, 0, 1, 0, 0, 0, 1);
@@ -210,19 +217,19 @@ int main(int argc, const char* argv[]) {
 			cv::Point2f(0, 0), std::plus<cv::Point2f>());
 		point_keyfr_curr *= (1.0 / points_curr.size());
 		double norm_movement = cv::norm(point_keyfr - point_keyfr_curr);
-		
+
 		cv::Matx31d t;
 		cv::Matx33d R;
 		cv::Mat E, mask;
 
-		E = cv::findEssentialMat(points_curr, points_prev, camera_param.focal_length, 
-			                     camera_param.pp, cv::RANSAC, 0.999, 1.0, mask);
+		E = cv::findEssentialMat(points_curr, points_prev, camera_param.focal_length,
+			camera_param.pp, cv::RANSAC, 0.999, 1.0, mask);
 
 		// estimate R,T
 		if (counter == 1) {
 			cv::recoverPose(E, points_curr, points_prev, R, t, camera_param.focal_length,
-				            camera_param.pp, mask);
-			R_f = R ;
+				camera_param.pp, mask);
+			R_f = R;
 			t_f = t;
 			img_prev = img_curr.clone();
 			//img_prev_dst = img_curr_dst.clone();
@@ -233,19 +240,19 @@ int main(int argc, const char* argv[]) {
 		else {
 			if (norm_movement < KeyFrThresh) // if frame is not keyframe to skip
 				continue;
-			
+
 			cv::Matx33d R1, R2;
 			cv::Matx31d T;
-			
+
 			cv::decomposeEssentialMat(E, R1, R2, T);
 			auto euler_angles1 = rotationMatrixToEulerAngles(R1);
 			auto euler_angles2 = rotationMatrixToEulerAngles(R2);
 			auto dist1 = abs(euler_angles1(0)) + abs(euler_angles1(1)) + abs(euler_angles1(2));
 			auto dist2 = abs(euler_angles2(0)) + abs(euler_angles2(1)) + abs(euler_angles2(2));
-			
+
 			if (dist1 < dist2)
 				cv::recoverPose(E, points_curr, points_prev, R, t, camera_param.focal_length,
-					            camera_param.pp, mask);
+					camera_param.pp, mask);
 			else {
 				R = R2;
 				t = T;
@@ -267,17 +274,9 @@ int main(int argc, const char* argv[]) {
 		//img_prev_dst = img_curr_dst.clone();
 		points_prev = points_curr;
 		point_keyfr = point_keyfr_curr;
-		
-		int x = int(t_f(0)) ;
-		int y = int(t_f(2)) ;
-		
-		circle(traj, cv::Point(600 - (x / 1 + 200), y / 1 + 300), 1, CV_RGB(255, 0, 0), 1);
-        rectangle(traj, cv::Point(10, 30), cv::Point(550, 50), CV_RGB(0, 0, 0), CV_FILLED);
-		
-		sprintf(text, "Coordinates: x = %02fm y = %02fm z = %02fm", t_f(0), t_f(1), t_f(2));
-		putText(traj, text, textOrg, fontFace, fontScale, cv::Scalar::all(255), thickness, 8);
-		cv::imshow("Trajectory", traj);
-		
+
+		DrawTrajectory(t_f, traj);
+
 		if (cv::waitKey(1) == 27)
 			break;
 	}

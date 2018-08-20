@@ -106,7 +106,7 @@ static bool createDetectorDescriptorMatcher(FeatureType feature_type,
 		detector = cv::ORB::create();
 	}
 	else
-		return true; 
+		return true;
 	bool isCreated = !detector.empty();
 	if (!isCreated)
 		std::cout << "Can not create feature detector of given types." << std::endl << ">" << std::endl;
@@ -137,8 +137,8 @@ void featureDetection(const cv::Ptr<cv::FeatureDetector>& detector,
 #endif
 		default:
 			FAST(img, keypoints, fast_threshold, nonmaxSuppression, type);
+		}
 	}
-}
 	else if (feature_type == FeatureType::GFTT) {
 		cv::Mat mask;
 		int maxCorners = 300;
@@ -165,8 +165,8 @@ void featureDetection(const cv::Ptr<cv::FeatureDetector>& detector,
 					mask, blockSize, useHarrisDetector, k);
 				return;
 			}
-	}
 		}
+	}
 	else
 		detector->detect(img, keypoints);
 	cv::KeyPoint::convert(keypoints, points, std::vector<int>());
