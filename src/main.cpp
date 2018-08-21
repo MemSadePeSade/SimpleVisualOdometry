@@ -7,7 +7,10 @@
 
 #include <boost/filesystem/operations.hpp>
 #include "opencv2/core/utility.hpp"
+
+#include "load_camera_param.h"
 #include "vo_features.h"
+#include "draw.h"
 
 #define MAX_FRAME 384
 #define MIN_NUM_FEAT 2000
@@ -26,131 +29,20 @@ bool isRotationMatrix(const cv::Matx33d& R) {
 // of the euler angles ( x and z are swapped ).
 cv::Vec3d rotationMatrixToEulerAngles(const cv::Matx33d &R) {
 	assert(isRotationMatrix(R));
-
 	double sy = sqrt(R(0, 0) * R(0, 0) + R(1, 0) * R(1, 0));
-
-	bool singular = sy < 1e-6; // If
-
+    bool singular = sy < 1e-6; // If
 	double x, y, z;
-	if (!singular)
-	{
+	if (!singular){
 		x = atan2(R(2, 1), R(2, 2));
 		y = atan2(-R(2, 0), sy);
 		z = atan2(R(1, 0), R(0, 0));
 	}
-	else
-	{
+	else{
 		x = atan2(-R(1, 2), R(1, 1));
 		y = atan2(-R(2, 0), sy);
 		z = 0;
 	}
 	return cv::Vec3d(x, y, z);
-}
-
-struct CameraParam {
-	CameraParam() : pp(358.9874749825216, 201.7120939366421), intrisic_mat(1, 0, 0, 0, 1, 0, 0, 0, 1),
-		dist_coeff(0, 0, 0, 0) {}
-	cv::Matx<double, 1, 4> dist_coeff;
-	cv::Matx33d intrisic_mat;
-	double focal_length = 681.609;
-	cv::Point2d pp;
-};
-
-void MakeIntrisicMatFromVector(CameraParam& camera_param,
-	const std::vector<double>& parametrs) {
-	camera_param.intrisic_mat(0, 0) = parametrs[0]; //fx
-	camera_param.intrisic_mat(0, 2) = parametrs[2]; //cx
-	camera_param.intrisic_mat(1, 1) = parametrs[1]; //fy
-	camera_param.intrisic_mat(1, 2) = parametrs[3]; //cy
-	camera_param.focal_length = 681.609;//cv::norm(cv::Point2d(parametrs[0], parametrs[1]));
-	camera_param.pp.x = parametrs[2];
-	camera_param.pp.y = parametrs[3];
-}
-
-int LoadCameraParam(const std::string& filename, CameraParam& camera_param) {
-	cv::FileStorage fs;
-	fs.open(filename, cv::FileStorage::READ);
-	if (!fs.isOpened())
-	{
-		std::cerr << "Failed to open " << filename << std::endl;
-		return 1;
-	}
-
-	cv::FileNode n = fs["cam0"];
-	cv::FileNodeIterator it = n.begin(), it_end = n.end(); // Go through the node
-	for (; it != it_end; ++it)
-	{
-		std::cout << (*it).name() << std::endl;
-		if ((*it).name() == "distortion_coeffs") {
-			std::vector<double> data;
-			(*it) >> data;
-			camera_param.dist_coeff = cv::Mat(1, 4, CV_64F, data.data());
-			for (auto& elem : data)
-				std::cout << elem << std::endl;
-		}
-		if ((*it).name() == "intrinsics") {
-			std::vector<double> data;
-			(*it) >> data;
-			MakeIntrisicMatFromVector(camera_param, data);
-			for (auto& elem : data)
-				std::cout << elem << std::endl;
-		}
-		if ((*it).name() == "resolution") {
-			std::vector<int> data;
-			(*it) >> data;
-			for (auto& elem : data)
-				std::cout << elem << std::endl;
-		}
-	}
-	fs.release();
-	return 0;
-}
-
-void DrawOpticalFlow(std::vector<cv::Point2f>& points_prev,
-	std::vector<cv::Point2f>& points_curr, cv::Mat& img_curr) {
-	cv::Mat img_curr_keypoints;
-	std::vector<cv::KeyPoint> draw_points_curr;
-	draw_points_curr.resize(points_curr.size());
-	std::for_each(draw_points_curr.begin(), draw_points_curr.end(),
-		[&points_curr, counter = 0](auto& it)  mutable
-	{
-		it.pt = points_curr[counter];
-		counter++;
-	});
-	cv::drawKeypoints(img_curr, draw_points_curr, img_curr_keypoints, cv::Scalar::all(-1), cv::DrawMatchesFlags::DEFAULT);
-	cv::imshow("Img_curr", img_curr_keypoints);
-
-	/// DrawOpticalFlow
-	auto draw_img = img_curr.clone();
-	int counter = 0;
-	for (const auto& pt2 : points_prev) {
-		auto pt1 = points_curr[counter];
-		cv::line(draw_img, pt1, pt2, cv::Scalar(0, 125, 0));
-		cv::circle(draw_img, pt2, 2, cv::Scalar(255, 0, 0), -1);
-		cv::circle(draw_img, pt1, 2, cv::Scalar(0, 0, 255), -1);
-		cv::imshow("TrackDraw", draw_img);
-		counter++;
-	}
-}
-
-namespace {
-	char text[100];
-	int fontFace = cv::FONT_HERSHEY_PLAIN;
-	double fontScale = 1;
-	int thickness = 1;
-	cv::Point textOrg(10, 50);
-	const char *img_path = "C:\\Users\\vponomarev\\Desktop\\01\\img_datasets\\e1i90v1a30_undistorted\\frame%06d.jpg";
-	//const char *img_path = "C:\\Users\\vponomarev\\Desktop\\01\\img_datasets\\e1i90v1a30\\frame%06d.jpg";
-} // unnamed namespace
-
-void DrawTrajectory(const cv::Matx31d& t_f, const cv::Mat traj) {
-	int x = int(t_f(0));
-	int y = int(t_f(2));
-	circle(traj, cv::Point(600 - (x / 1 + 200), y / 1 + 300), 1, CV_RGB(255, 0, 0), 1);
-	rectangle(traj, cv::Point(10, 30), cv::Point(550, 50), CV_RGB(0, 0, 0), CV_FILLED);
-	sprintf(text, "Coordinates: x = %02fm y = %02fm z = %02fm", t_f(0), t_f(1), t_f(2));
-	putText(traj, text, textOrg, fontFace, fontScale, cv::Scalar::all(255), thickness, 8);
-	cv::imshow("Trajectory", traj);
 }
 
 int main(int argc, const char* argv[]) {
@@ -177,14 +69,19 @@ int main(int argc, const char* argv[]) {
 	if (!createDetectorDescriptorMatcher(kFeatureType, featureDetector))
 		return -1;
 
-	int counter = 0;
+	const char *img_path = "C:\\Users\\vponomarev\\Desktop\\01\\img_datasets\\e1i90v1a30_undistorted\\frame%06d.jpg";
+	//const char *img_path = "C:\\Users\\vponomarev\\Desktop\\01\\img_datasets\\e1i90v1a30\\frame%06d.jpg";
 	char filename[200];
+	int  counter = 0;
 	sprintf(filename, img_path, counter);
 
 	cv::Mat img_prev = cv::imread(filename);
+	if( img_prev.empty())
+		return -1;
+	
 	cv::cvtColor(img_prev, img_prev, cv::COLOR_BGR2GRAY);
-	//cv::Mat img_prev_dst;
-	//cv::undistort(img_prev, img_prev_dst, camera_param.intrisic_mat, camera_param.dist_coeff);
+	cv::Mat img_prev_dst;
+	cv::undistort(img_prev, img_prev_dst, camera_param.intrisic_mat, camera_param.dist_coeff);
 
 	std::vector<cv::Point2f> points_prev;
 	featureDetection(featureDetector, img_prev, points_prev, kFeatureType);//detect features in img1
