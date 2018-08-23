@@ -1,0 +1,10 @@
+%YAML:1.0
+cam0:
+  cam_overlaps: []
+  camera_model: pinhole
+  distortion_coeffs: [-0.15412972861568583, 0.11008656000416889, -0.0009398251889903724,
+    -0.0002634157618626408]
+  distortion_model: radtan
+  intrinsics: [681.6099323547214, 681.5381200693763, 358.9874749825216, 201.7120939366421]
+  resolution: [720, 405]
+  rostopic: /camera/image_resize/image_mono
